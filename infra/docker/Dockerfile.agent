@@ -1,0 +1,27 @@
+FROM node:20-alpine AS base
+RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
+WORKDIR /app
+
+FROM base AS deps
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
+COPY packages/shared/package.json ./packages/shared/
+COPY packages/docker-templates/package.json ./packages/docker-templates/
+COPY apps/agent/package.json ./apps/agent/
+RUN pnpm install --frozen-lockfile || pnpm install
+
+FROM base AS builder
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN pnpm --filter @rkyves/shared build
+RUN pnpm --filter @rkyves/docker-templates build
+RUN pnpm --filter @rkyves/agent build
+
+FROM node:20-alpine AS runner
+RUN apk add --no-cache git docker-cli
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=builder /app/apps/agent/dist ./dist
+COPY --from=builder /app/apps/agent/package.json ./
+COPY --from=builder /app/packages ./packages
+COPY --from=builder /app/node_modules ./node_modules
+CMD ["node", "dist/index.js"]

@@ -1,0 +1,134 @@
+services:
+  traefik:
+    image: traefik:v3.2
+    container_name: rkyves-traefik
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/dynamic:/etc/traefik/dynamic:ro
+      - traefik-certs:/letsencrypt
+    networks:
+      - rkyves-platform
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: rkyves-control-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: rkyves
+      POSTGRES_PASSWORD: rkyves_secret
+      POSTGRES_DB: rkyves_control
+    volumes:
+      - control-db:/var/lib/postgresql/data
+    networks:
+      - rkyves-platform
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rkyves"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: rkyves-redis
+    restart: unless-stopped
+    networks:
+      - rkyves-platform
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    container_name: rkyves-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: rkyves
+      MINIO_ROOT_PASSWORD: rkyves-secret
+    volumes:
+      - minio-data:/data
+    networks:
+      - rkyves-platform
+
+  api:
+    build:
+      context: ..
+      dockerfile: infra/docker/Dockerfile.api
+    container_name: rkyves-api
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      DATABASE_URL: postgresql://rkyves:rkyves_secret@postgres:5432/rkyves_control
+      REDIS_URL: redis://redis:6379
+      API_PORT: "3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - rkyves-platform
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.rkyves-api.rule=Host(`api.rkyves.local`)"
+      - "traefik.http.routers.rkyves-api.entrypoints=websecure"
+      - "traefik.http.routers.rkyves-api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.rkyves-api.loadbalancer.server.port=3001"
+
+  dashboard:
+    build:
+      context: ..
+      dockerfile: infra/docker/Dockerfile.dashboard
+    container_name: rkyves-dashboard
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://api:3001
+    depends_on:
+      - api
+    networks:
+      - rkyves-platform
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.rkyves-dashboard.rule=Host(`cloud.rkyves.local`)"
+      - "traefik.http.routers.rkyves-dashboard.entrypoints=websecure"
+      - "traefik.http.routers.rkyves-dashboard.tls.certresolver=letsencrypt"
+      - "traefik.http.services.rkyves-dashboard.loadbalancer.server.port=3000"
+
+  agent:
+    build:
+      context: ..
+      dockerfile: infra/docker/Dockerfile.agent
+    container_name: rkyves-agent
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      AGENT_API_URL: http://api:3001
+      TRAEFIK_NETWORK: rkyves-platform
+      WORKER_ID: worker-1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - agent-builds:/tmp/rkyves-builds
+    depends_on:
+      - api
+    networks:
+      - rkyves-platform
+
+networks:
+  rkyves-platform:
+    name: rkyves-platform
+    driver: bridge
+
+volumes:
+  control-db:
+  minio-data:
+  traefik-certs:
+  agent-builds:

@@ -1,0 +1,16 @@
+{
+  "name": "rkyves-platform",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "build": "pnpm -r build",
+    "db:generate": "pnpm --filter @rkyves/db generate",
+    "db:migrate": "pnpm --filter @rkyves/db migrate",
+    "db:push": "pnpm --filter @rkyves/db push",
+    "db:seed": "pnpm --filter @rkyves/db seed"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

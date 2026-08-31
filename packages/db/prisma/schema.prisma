@@ -1,0 +1,266 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum OrgRole {
+  owner
+  admin
+  member
+}
+
+enum ServiceType {
+  web
+  postgres
+  redis
+  storage
+  cron
+}
+
+enum ServiceStatus {
+  pending
+  provisioning
+  running
+  stopped
+  failed
+  deleting
+}
+
+enum DeploymentStatus {
+  queued
+  building
+  deploying
+  success
+  failed
+}
+
+enum WorkerStatus {
+  online
+  offline
+  draining
+}
+
+enum CronTargetType {
+  http
+  container
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  memberships OrgMember[]
+  apiKeys     ApiKey[]
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members  OrgMember[]
+  projects Project[]
+}
+
+model OrgMember {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  role           OrgRole  @default(member)
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+}
+
+model Project {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  slug           String
+  description    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  services     Service[]
+  environments Environment[]
+
+  @@unique([organizationId, slug])
+}
+
+model Environment {
+  id        String   @id @default(cuid())
+  projectId String
+  name      String
+  slug      String
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, slug])
+}
+
+model Worker {
+  id         String       @id @default(cuid())
+  workerId   String       @unique
+  hostname   String
+  status     WorkerStatus @default(offline)
+  cpuCores   Int
+  memoryMb   Int
+  diskGb     Int
+  lastSeenAt DateTime?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  services Service[]
+}
+
+model Service {
+  id             String        @id @default(cuid())
+  projectId      String
+  workerId       String?
+  name           String
+  slug           String
+  type           ServiceType
+  status         ServiceStatus @default(pending)
+  config         Json          @default("{}")
+  connectionInfo Json?
+  containerId    String?
+  networkName    String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  worker      Worker?      @relation(fields: [workerId], references: [id], onDelete: SetNull)
+  deployments Deployment[]
+  envVars     EnvVar[]
+  domains     Domain[]
+  volumes     Volume[]
+  cronJobs    CronJob[]
+
+  @@unique([projectId, slug])
+}
+
+model Deployment {
+  id          String           @id @default(cuid())
+  serviceId   String
+  status      DeploymentStatus @default(queued)
+  gitRef      String?
+  gitCommit   String?
+  imageTag    String?
+  buildLogs   String?
+  error       String?
+  startedAt   DateTime         @default(now())
+  completedAt DateTime?
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+}
+
+model EnvVar {
+  id         String   @id @default(cuid())
+  serviceId  String
+  key        String
+  valueEnc   String
+  isSecret   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceId, key])
+}
+
+model Domain {
+  id        String   @id @default(cuid())
+  serviceId String
+  hostname  String   @unique
+  isPrimary Boolean  @default(false)
+  sslEnabled Boolean @default(true)
+  createdAt DateTime @default(now())
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+}
+
+model Volume {
+  id          String   @id @default(cuid())
+  serviceId   String
+  name        String
+  mountPath   String
+  sizeGb      Int      @default(10)
+  containerPath String?
+  createdAt   DateTime @default(now())
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+}
+
+model ApiKey {
+  id        String    @id @default(cuid())
+  userId    String
+  name      String
+  keyHash   String    @unique
+  prefix    String
+  expiresAt DateTime?
+  lastUsedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model CronJob {
+  id          String         @id @default(cuid())
+  serviceId   String
+  name        String
+  schedule    String
+  targetType  CronTargetType
+  targetUrl   String?
+  targetImage String?
+  targetCommand String?
+  timezone    String         @default("UTC")
+  enabled     Boolean        @default(true)
+  lastRunAt   DateTime?
+  nextRunAt   DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  runs    CronRun[]
+}
+
+model CronRun {
+  id        String   @id @default(cuid())
+  cronJobId String
+  status    String
+  logs      String?
+  startedAt DateTime @default(now())
+  completedAt DateTime?
+  error     String?
+
+  cronJob CronJob @relation(fields: [cronJobId], references: [id], onDelete: Cascade)
+}
+
+model AgentTask {
+  id        String   @id @default(cuid())
+  workerId  String
+  serviceId String
+  type      String
+  payload   Json     @default("{}")
+  status    String   @default("pending")
+  error     String?
+  createdAt DateTime @default(now())
+  claimedAt DateTime?
+  completedAt DateTime?
+}
