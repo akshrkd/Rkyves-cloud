@@ -5,7 +5,7 @@ export const config = {
   corsOrigin: process.env.CORS_ORIGIN ?? "http://localhost:3000",
   redisUrl: process.env.REDIS_URL ?? "redis://localhost:6379",
   agentToken: process.env.AGENT_TOKEN ?? "agent-secret-token",
-  platformDomain: process.env.PLATFORM_DOMAIN ?? "rkyves.local",
+  platformDomain: process.env.PLATFORM_DOMAIN ?? "rkyves.com",
   minio: {
     endpoint: process.env.MINIO_ENDPOINT ?? "http://localhost:9000",
     accessKey: process.env.MINIO_ACCESS_KEY ?? "rkyves",

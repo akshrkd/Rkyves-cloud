@@ -5,7 +5,7 @@ export const agentConfig = {
   hostname: process.env.HOSTNAME ?? "localhost",
   pollIntervalMs: parseInt(process.env.POLL_INTERVAL_MS ?? "5000", 10),
   traefikNetwork: process.env.TRAEFIK_NETWORK ?? "rkyves-platform",
-  platformDomain: process.env.PLATFORM_DOMAIN ?? "rkyves.local",
+  platformDomain: process.env.PLATFORM_DOMAIN ?? "rkyves.com",
   minioEndpoint: process.env.MINIO_ENDPOINT ?? "http://minio:9000",
   cpuCores: parseInt(process.env.CPU_CORES ?? "4", 10),
   memoryMb: parseInt(process.env.MEMORY_MB ?? "16384", 10),

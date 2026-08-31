@@ -79,7 +79,7 @@ export default function WorkersPage() {
         <pre className="mt-4 overflow-x-auto rounded-lg bg-slate-950 p-4 text-xs text-slate-300">
 {`# On a new VM, run agent with unique worker ID:
 WORKER_ID=worker-2 \\
-AGENT_API_URL=https://api.rkyves.in \\
+AGENT_API_URL=https://api.rkyves.com \\
 AGENT_TOKEN=your-token \\
 docker compose up agent -d`}
         </pre>

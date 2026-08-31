@@ -78,7 +78,7 @@ services:
       - rkyves-platform
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.rkyves-api.rule=Host(`api.rkyves.local`)"
+      - "traefik.http.routers.rkyves-api.rule=Host(`api.rkyves.com`)"
       - "traefik.http.routers.rkyves-api.entrypoints=websecure"
       - "traefik.http.routers.rkyves-api.tls.certresolver=letsencrypt"
       - "traefik.http.services.rkyves-api.loadbalancer.server.port=3001"
@@ -97,7 +97,7 @@ services:
       - rkyves-platform
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.rkyves-dashboard.rule=Host(`cloud.rkyves.local`)"
+      - "traefik.http.routers.rkyves-dashboard.rule=Host(`cloud.rkyves.com`)"
       - "traefik.http.routers.rkyves-dashboard.entrypoints=websecure"
       - "traefik.http.routers.rkyves-dashboard.tls.certresolver=letsencrypt"
       - "traefik.http.services.rkyves-dashboard.loadbalancer.server.port=3000"

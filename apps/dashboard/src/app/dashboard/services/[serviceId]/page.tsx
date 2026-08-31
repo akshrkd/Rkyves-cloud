@@ -124,7 +124,7 @@ export default function ServiceDetailPage() {
 
           {service.type === "web" && (
             <form onSubmit={addDomain} className="flex gap-2">
-              <input className="input flex-1" placeholder="api.myapp.rkyves.in" value={domain} onChange={(e) => setDomain(e.target.value)} />
+              <input className="input flex-1" placeholder="api.myapp.rkyves.com" value={domain} onChange={(e) => setDomain(e.target.value)} />
               <button type="submit" className="btn-secondary">Add Domain</button>
             </form>
           )}

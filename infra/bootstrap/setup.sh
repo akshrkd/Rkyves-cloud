@@ -43,12 +43,12 @@ if [[ ! -f "$INSTALL_DIR/.env" ]]; then
 DATABASE_URL=postgresql://rkyves:rkyves_secret@postgres:5432/rkyves_control
 JWT_SECRET=$(openssl rand -hex 32)
 ENCRYPTION_KEY=$(openssl rand -hex 16)
-CORS_ORIGIN=https://cloud.rkyves.in
+CORS_ORIGIN=https://cloud.rkyves.com
 REDIS_URL=redis://redis:6379
 AGENT_TOKEN=$(openssl rand -hex 24)
 WORKER_ID=worker-1
-PLATFORM_DOMAIN=rkyves.in
-ACME_EMAIL=admin@rkyves.in
+PLATFORM_DOMAIN=rkyves.com
+ACME_EMAIL=admin@rkyves.com
 MINIO_ENDPOINT=http://minio:9000
 MINIO_ACCESS_KEY=rkyves
 MINIO_SECRET_KEY=$(openssl rand -hex 16)
