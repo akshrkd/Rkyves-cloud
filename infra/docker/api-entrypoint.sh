@@ -7,6 +7,8 @@ if [ ! -f "$SCHEMA" ]; then
 fi
 
 if [ -x ./node_modules/.bin/prisma ] && [ -f "$SCHEMA" ]; then
+  echo "Generating Prisma client..."
+  ./node_modules/.bin/prisma generate --schema="$SCHEMA" || true
   echo "Running database migrations..."
   ./node_modules/.bin/prisma db push --schema="$SCHEMA" --skip-generate || true
 fi

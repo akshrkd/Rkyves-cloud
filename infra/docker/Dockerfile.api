@@ -26,7 +26,9 @@ RUN pnpm --filter @rkyves/shared build \
 
 FROM base AS deploy
 COPY --from=builder /app ./
-RUN pnpm --filter @rkyves/api deploy --prod /deploy/api
+RUN pnpm --filter @rkyves/api deploy --prod /deploy/api \
+ && cd /deploy/api \
+ && ./node_modules/.bin/prisma generate --schema=./node_modules/@rkyves/db/prisma/schema.prisma
 
 FROM node:20-alpine AS runner
 WORKDIR /app
