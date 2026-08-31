@@ -24,17 +24,14 @@ RUN pnpm --filter @rkyves/shared build \
  && pnpm --filter @rkyves/db build \
  && pnpm --filter @rkyves/api build
 
+FROM base AS deploy
+COPY --from=builder /app ./
+RUN pnpm --filter @rkyves/api deploy --prod /deploy/api
+
 FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
-COPY --from=builder /app/apps/api/dist ./dist
-COPY --from=builder /app/apps/api/package.json ./package.json
-COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
-COPY --from=builder /app/packages/shared/package.json ./packages/shared/package.json
-COPY --from=builder /app/packages/db/dist ./packages/db/dist
-COPY --from=builder /app/packages/db/package.json ./packages/db/package.json
-COPY --from=builder /app/packages/db/prisma ./packages/db/prisma
-COPY --from=builder /app/node_modules ./node_modules
+COPY --from=deploy /deploy/api ./
 COPY infra/docker/api-entrypoint.sh ./entrypoint.sh
 RUN chmod +x ./entrypoint.sh
 EXPOSE 3001
