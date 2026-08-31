@@ -44,11 +44,15 @@ app.onError((err, c) => {
   return c.json({ error: err.message ?? "Internal server error" }, 500);
 });
 
-startCronDispatcher();
-scheduleDailyBackups();
+try {
+  startCronDispatcher();
+  scheduleDailyBackups();
+} catch (err) {
+  console.error("Background jobs failed to start:", err);
+}
 
-serve({ fetch: app.fetch, port: config.port }, () => {
-  console.log(`Rkyves API listening on http://localhost:${config.port}`);
+serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, () => {
+  console.log(`Rkyves API listening on http://0.0.0.0:${config.port}`);
 });
 
 export default app;

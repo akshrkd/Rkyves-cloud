@@ -28,12 +28,17 @@ FROM base AS deploy
 COPY --from=builder /app ./
 RUN pnpm --filter @rkyves/api deploy --prod /deploy/api \
  && cd /deploy/api \
- && ./node_modules/.bin/prisma generate --schema=./node_modules/@rkyves/db/prisma/schema.prisma
+ && test -f dist/index.js \
+ && SCHEMA=$(find . -path '*/prisma/schema.prisma' | head -1) \
+ && test -n "$SCHEMA" \
+ && ./node_modules/.bin/prisma generate --schema="$SCHEMA"
 
 FROM node:20-alpine AS runner
+RUN apk add --no-cache curl
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=deploy /deploy/api ./
+COPY --from=builder /app/packages/db/prisma ./prisma
 COPY infra/docker/api-entrypoint.sh ./entrypoint.sh
 RUN chmod +x ./entrypoint.sh
 EXPOSE 3001
