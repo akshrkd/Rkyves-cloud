@@ -3,25 +3,35 @@ RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
 WORKDIR /app
 
 FROM base AS deps
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml .npmrc ./
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/docker-templates/package.json ./packages/docker-templates/
+COPY packages/db/package.json ./packages/db/
+COPY apps/api/package.json ./apps/api/
 COPY apps/agent/package.json ./apps/agent/
-RUN pnpm install --frozen-lockfile || pnpm install
+COPY apps/dashboard/package.json ./apps/dashboard/
+ENV CI=true
+RUN pnpm install --frozen-lockfile
 
 FROM base AS builder
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
-RUN pnpm --filter @rkyves/shared build
-RUN pnpm --filter @rkyves/docker-templates build
-RUN pnpm --filter @rkyves/agent build
+COPY --from=deps /app ./
+COPY packages/shared ./packages/shared
+COPY packages/docker-templates ./packages/docker-templates
+COPY packages/db ./packages/db
+COPY apps/agent ./apps/agent
+RUN pnpm --filter @rkyves/shared build \
+ && pnpm --filter @rkyves/docker-templates build \
+ && pnpm --filter @rkyves/agent build
 
 FROM node:20-alpine AS runner
 RUN apk add --no-cache git docker-cli
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=builder /app/apps/agent/dist ./dist
-COPY --from=builder /app/apps/agent/package.json ./
-COPY --from=builder /app/packages ./packages
+COPY --from=builder /app/apps/agent/package.json ./package.json
+COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
+COPY --from=builder /app/packages/shared/package.json ./packages/shared/package.json
+COPY --from=builder /app/packages/docker-templates/dist ./packages/docker-templates/dist
+COPY --from=builder /app/packages/docker-templates/package.json ./packages/docker-templates/package.json
 COPY --from=builder /app/node_modules ./node_modules
 CMD ["node", "dist/index.js"]

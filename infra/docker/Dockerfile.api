@@ -3,29 +3,38 @@ RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
 WORKDIR /app
 
 FROM base AS deps
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml .npmrc ./
 COPY packages/shared/package.json ./packages/shared/
+COPY packages/docker-templates/package.json ./packages/docker-templates/
 COPY packages/db/package.json ./packages/db/
 COPY apps/api/package.json ./apps/api/
-RUN pnpm install --frozen-lockfile || pnpm install
+COPY apps/agent/package.json ./apps/agent/
+COPY apps/dashboard/package.json ./apps/dashboard/
+ENV CI=true
+RUN pnpm install --frozen-lockfile
 
 FROM base AS builder
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/packages/shared/node_modules ./packages/shared/node_modules
-COPY --from=deps /app/packages/db/node_modules ./packages/db/node_modules
-COPY --from=deps /app/apps/api/node_modules ./apps/api/node_modules
-COPY . .
-RUN pnpm --filter @rkyves/shared build
-RUN pnpm --filter @rkyves/db generate
-RUN pnpm --filter @rkyves/db build
-RUN pnpm --filter @rkyves/api build
+COPY --from=deps /app ./
+COPY packages/shared ./packages/shared
+COPY packages/db ./packages/db
+COPY apps/api ./apps/api
+RUN pnpm --filter @rkyves/shared build \
+ && pnpm --filter @rkyves/db generate \
+ && pnpm --filter @rkyves/db build \
+ && pnpm --filter @rkyves/api build
 
 FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=builder /app/apps/api/dist ./dist
-COPY --from=builder /app/apps/api/package.json ./
-COPY --from=builder /app/packages ./packages
+COPY --from=builder /app/apps/api/package.json ./package.json
+COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
+COPY --from=builder /app/packages/shared/package.json ./packages/shared/package.json
+COPY --from=builder /app/packages/db/dist ./packages/db/dist
+COPY --from=builder /app/packages/db/package.json ./packages/db/package.json
+COPY --from=builder /app/packages/db/prisma ./packages/db/prisma
 COPY --from=builder /app/node_modules ./node_modules
+COPY infra/docker/api-entrypoint.sh ./entrypoint.sh
+RUN chmod +x ./entrypoint.sh
 EXPOSE 3001
-CMD ["node", "dist/index.js"]
+ENTRYPOINT ["./entrypoint.sh"]
