@@ -165,6 +165,6 @@ githubRoutes.get("/repos/:owner/:repo/branches", async (c) => {
   }
 
   const octokit = await getInstallationOctokit(installation.installationId);
-  const { data } = await octokit.repos.listBranches({ owner, repo, per_page: 100 });
+  const { data } = await octokit.rest.repos.listBranches({ owner, repo, per_page: 100 });
   return c.json({ branches: data.map((b) => b.name) });
 });

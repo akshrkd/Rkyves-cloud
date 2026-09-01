@@ -4,6 +4,12 @@ import { randomBytes } from "crypto";
 import { config } from "../lib/config.js";
 import { slugify } from "@rkyves/shared";
 
+type RestClient = Octokit["rest"];
+
+function getRestClient(octokit: Octokit): RestClient {
+  return octokit.rest;
+}
+
 let githubApp: App | null = null;
 
 function getApp(): App {
@@ -72,11 +78,12 @@ export async function listRepos(
   search?: string
 ): Promise<GitHubRepoSummary[]> {
   const octokit = await getInstallationOctokit(installationId);
+  const rest = getRestClient(octokit);
   const repos: GitHubRepoSummary[] = [];
   let page = 1;
 
   while (page <= 5) {
-    const { data } = await octokit.apps.listReposAccessibleToInstallation({
+    const { data } = await rest.apps.listReposAccessibleToInstallation({
       per_page: 100,
       page,
     });
@@ -117,7 +124,7 @@ async function fetchFileContent(
   ref: string
 ): Promise<string | null> {
   try {
-    const { data } = await octokit.repos.getContent({ owner, repo, path, ref });
+    const { data } = await getRestClient(octokit).repos.getContent({ owner, repo, path, ref });
     if (Array.isArray(data) || data.type !== "file" || !("content" in data)) return null;
     return Buffer.from(data.content, "base64").toString("utf8");
   } catch {
@@ -178,7 +185,8 @@ export async function analyzeRepo(
   branch?: string
 ): Promise<RepoAnalysis> {
   const octokit = await getInstallationOctokit(installationId);
-  const { data: repoData } = await octokit.repos.get({ owner, repo });
+  const rest = getRestClient(octokit);
+  const { data: repoData } = await rest.repos.get({ owner, repo });
   const gitBranch = branch ?? repoData.default_branch ?? "main";
 
   const sources: Record<string, string> = { gitBranch: "repository metadata" };
@@ -263,7 +271,7 @@ export async function branchExists(
 ): Promise<boolean> {
   const octokit = await getInstallationOctokit(installationId);
   try {
-    await octokit.repos.getBranch({ owner, repo, branch });
+    await getRestClient(octokit).repos.getBranch({ owner, repo, branch });
     return true;
   } catch {
     return false;
@@ -284,7 +292,7 @@ export async function registerWebhook(
   const octokit = await getInstallationOctokit(installationId);
   const webhookUrl = `${config.apiPublicUrl}/webhooks/github/${serviceId}`;
 
-  const { data } = await octokit.repos.createWebhook({
+  const { data } = await getRestClient(octokit).repos.createWebhook({
     owner,
     repo,
     config: {
@@ -308,7 +316,7 @@ export async function removeWebhook(
 ): Promise<void> {
   const octokit = await getInstallationOctokit(installationId);
   try {
-    await octokit.repos.deleteWebhook({ owner, repo, hook_id: webhookId });
+    await getRestClient(octokit).repos.deleteWebhook({ owner, repo, hook_id: webhookId });
   } catch {
     // webhook may already be removed
   }
