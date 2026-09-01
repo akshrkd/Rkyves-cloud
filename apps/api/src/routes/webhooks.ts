@@ -22,6 +22,19 @@ function verifyGitHubSignature(
   }
 }
 
+webhookRoutes.post("/github/app", async (c) => {
+  const rawBody = await c.req.text();
+  const signature = c.req.header("X-Hub-Signature-256");
+  if (!verifyGitHubSignature(rawBody, signature, config.github.webhookSecret)) {
+    return c.json({ error: "Invalid signature" }, 401);
+  }
+  const event = c.req.header("X-GitHub-Event");
+  if (event === "ping") {
+    return c.json({ ok: true, message: "pong" });
+  }
+  return c.json({ ok: true, skipped: true });
+});
+
 webhookRoutes.post("/github/:serviceId", async (c) => {
   const serviceId = c.req.param("serviceId");
   const event = c.req.header("X-GitHub-Event");

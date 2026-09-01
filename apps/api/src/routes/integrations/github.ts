@@ -15,6 +15,10 @@ import {
 export const githubIntegrationRoutes = new Hono();
 export const githubPublicRoutes = new Hono();
 
+githubPublicRoutes.get("/configured", (c) => {
+  return c.json({ configured: isGitHubConfigured() });
+});
+
 githubPublicRoutes.get("/callback", async (c) => {
   const installationIdRaw = c.req.query("installation_id");
   const state = c.req.query("state");
