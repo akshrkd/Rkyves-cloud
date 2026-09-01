@@ -71,6 +71,7 @@ model Organization {
 
   members  OrgMember[]
   projects Project[]
+  githubInstallation GitHubInstallation?
 }
 
 model OrgMember {
@@ -142,6 +143,7 @@ model Service {
   connectionInfo Json?
   containerId    String?
   networkName    String?
+  runtimeLogs    String?       @db.Text
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
@@ -152,8 +154,33 @@ model Service {
   domains     Domain[]
   volumes     Volume[]
   cronJobs    CronJob[]
+  githubRepoLink GitHubRepoLink?
 
   @@unique([projectId, slug])
+}
+
+model GitHubInstallation {
+  id             String   @id @default(cuid())
+  organizationId String   @unique
+  installationId Int      @unique
+  accountLogin   String
+  accountType    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+model GitHubRepoLink {
+  id             String  @id @default(cuid())
+  serviceId      String  @unique
+  installationId Int
+  owner          String
+  repo           String
+  webhookId      Int?
+  webhookSecret  String
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
 }
 
 model Deployment {
@@ -264,4 +291,31 @@ model AgentTask {
   createdAt DateTime @default(now())
   claimedAt DateTime?
   completedAt DateTime?
+}
+
+model AuditLog {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String?
+  action         String
+  resourceType   String
+  resourceId     String?
+  resourceName   String?
+  metadata       Json?
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId, createdAt])
+}
+
+model ServiceMetricSnapshot {
+  id         String   @id @default(cuid())
+  serviceId  String?
+  workerId   String?
+  cpuPercent Float?
+  memoryMb   Int?
+  diskGb     Int?
+  recordedAt DateTime @default(now())
+
+  @@index([serviceId, recordedAt])
+  @@index([workerId, recordedAt])
 }

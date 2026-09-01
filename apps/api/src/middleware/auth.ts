@@ -17,52 +17,47 @@ declare module "hono" {
   }
 }
 
-export async function requireAuth(c: Context, next: Next) {
-  const authHeader = c.req.header("Authorization");
-  if (!authHeader?.startsWith("Bearer ")) {
-    return c.json({ error: "Unauthorized" }, 401);
-  }
-
-  const token = authHeader.slice(7);
-
-  if (token === config.agentToken) {
-    c.set("isAgent", true);
-    return next();
-  }
+async function authenticateToken(token: string): Promise<AuthUser | null> {
+  if (token === config.agentToken) return null;
 
   try {
     const payload = await verifyToken(token);
-    c.set("user", {
-      id: payload.sub,
-      email: payload.email,
-      name: payload.name,
-    });
-    c.set("isAgent", false);
-    return next();
+    return { id: payload.sub, email: payload.email, name: payload.name };
   } catch {
     const keyHash = hashApiKey(token);
     const apiKey = await prisma.apiKey.findUnique({
       where: { keyHash },
       include: { user: true },
     });
-
-    if (!apiKey || (apiKey.expiresAt && apiKey.expiresAt < new Date())) {
-      return c.json({ error: "Unauthorized" }, 401);
-    }
-
+    if (!apiKey || (apiKey.expiresAt && apiKey.expiresAt < new Date())) return null;
     await prisma.apiKey.update({
       where: { id: apiKey.id },
       data: { lastUsedAt: new Date() },
     });
+    return { id: apiKey.user.id, email: apiKey.user.email, name: apiKey.user.name };
+  }
+}
 
-    c.set("user", {
-      id: apiKey.user.id,
-      email: apiKey.user.email,
-      name: apiKey.user.name,
-    });
-    c.set("isAgent", false);
+export async function requireAuth(c: Context, next: Next) {
+  const authHeader = c.req.header("Authorization");
+  const queryToken = c.req.query("token");
+  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : queryToken;
+
+  if (!token) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  if (token === config.agentToken) {
+    c.set("isAgent", true);
     return next();
   }
+
+  const user = await authenticateToken(token);
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
+
+  c.set("user", user);
+  c.set("isAgent", false);
+  return next();
 }
 
 export async function requireAgent(c: Context, next: Next) {

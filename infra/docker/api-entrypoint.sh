@@ -14,11 +14,23 @@ if [ ! -f ./dist/index.js ]; then
   exit 1
 fi
 
-if [ -x /app/node_modules/.bin/prisma ]; then
+PRISMA_BIN=""
+for candidate in /app/node_modules/.bin/prisma /app/packages/db/node_modules/.bin/prisma prisma; do
+  if command -v "$candidate" >/dev/null 2>&1; then
+    PRISMA_BIN="$candidate"
+    break
+  fi
+  if [ -x "$candidate" ]; then
+    PRISMA_BIN="$candidate"
+    break
+  fi
+done
+
+if [ -n "$PRISMA_BIN" ]; then
   echo "Generating Prisma client..."
-  /app/node_modules/.bin/prisma generate --schema="$SCHEMA"
+  "$PRISMA_BIN" generate --schema="$SCHEMA"
   echo "Running database migrations..."
-  /app/node_modules/.bin/prisma db push --schema="$SCHEMA"
+  "$PRISMA_BIN" migrate deploy --schema="$SCHEMA"
 fi
 
 echo "Starting Rkyves API..."

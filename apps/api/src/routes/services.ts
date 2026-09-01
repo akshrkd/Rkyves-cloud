@@ -5,17 +5,27 @@ import {
   createEnvVarSchema,
   createDomainSchema,
   triggerDeploySchema,
+  webServiceConfigSchema,
+  updateServiceSchema,
   slugify,
 } from "@rkyves/shared";
 import { encrypt, decrypt } from "../lib/crypto.js";
 import { config } from "../lib/config.js";
-import { enqueueDeploy } from "../lib/queue.js";
 import { requireAuth, requireUser } from "../middleware/auth.js";
+import { logAudit, getServiceForUser } from "../lib/audit.js";
+import { emitOrgEvent } from "../lib/events.js";
 import {
   buildServiceConfig,
   queueServiceProvision,
   getNetworkName,
 } from "../services/provisioning.js";
+import {
+  branchExists,
+  generateWebhookSecret,
+  registerWebhook,
+  removeWebhook,
+} from "../services/github.js";
+import { triggerServiceDeploy } from "../services/deploy.js";
 
 export const serviceRoutes = new Hono();
 
@@ -67,11 +77,49 @@ serviceRoutes.post("/projects/:projectId/services", async (c) => {
   });
   if (existing) return c.json({ error: "Service slug already exists" }, 409);
 
+  let inputConfig = (body.config ?? {}) as Record<string, unknown>;
+  let githubLink: {
+    installationId: number;
+    owner: string;
+    repo: string;
+  } | null = null;
+
+  if (body.type === "web" && body.githubRepo) {
+    const installation = await prisma.gitHubInstallation.findUnique({
+      where: { organizationId: project.organizationId },
+    });
+    if (!installation) {
+      return c.json({ error: "GitHub not connected for this organization" }, 400);
+    }
+
+    const { owner, repo, branch } = body.githubRepo;
+    const gitBranch = branch ?? (inputConfig.gitBranch as string) ?? "main";
+    const branchOk = await branchExists(installation.installationId, owner, repo, gitBranch);
+    if (!branchOk) {
+      return c.json({ error: `Branch "${gitBranch}" not found in ${owner}/${repo}` }, 400);
+    }
+
+    inputConfig = {
+      ...inputConfig,
+      gitOwner: owner,
+      gitRepoName: repo,
+      gitInstallationId: installation.installationId,
+      gitRepo: `https://github.com/${owner}/${repo}.git`,
+      gitBranch,
+    };
+
+    githubLink = { installationId: installation.installationId, owner, repo };
+  }
+
+  if (body.type === "web") {
+    webServiceConfigSchema.parse(inputConfig);
+  }
+
   const { config: serviceConfig, secrets } = await buildServiceConfig(
     body.type,
     body.name,
     project.slug,
-    (body.config ?? {}) as Record<string, unknown>
+    inputConfig
   );
 
   const networkName = getNetworkName(project.slug);
@@ -100,7 +148,48 @@ serviceRoutes.post("/projects/:projectId/services", async (c) => {
     });
   }
 
+  if (githubLink) {
+    const webhookSecret = generateWebhookSecret();
+    let webhookId: number | null = null;
+    try {
+      webhookId = await registerWebhook(
+        githubLink.installationId,
+        githubLink.owner,
+        githubLink.repo,
+        service.id,
+        webhookSecret
+      );
+    } catch (err) {
+      console.error("Failed to register GitHub webhook:", err);
+    }
+
+    await prisma.gitHubRepoLink.create({
+      data: {
+        serviceId: service.id,
+        installationId: githubLink.installationId,
+        owner: githubLink.owner,
+        repo: githubLink.repo,
+        webhookId,
+        webhookSecret: encrypt(webhookSecret),
+      },
+    });
+  }
+
   await queueServiceProvision(service.id);
+
+  await logAudit({
+    organizationId: project.organizationId,
+    userId: user.id,
+    action: "service.created",
+    resourceType: "service",
+    resourceId: service.id,
+    resourceName: service.name,
+  });
+
+  emitOrgEvent(project.organizationId, "service.updated", {
+    serviceId: service.id,
+    status: service.status,
+  });
 
   const cronConfig = serviceConfig as Record<string, unknown>;
   if (body.type === "cron" && cronConfig.schedule) {
@@ -118,9 +207,17 @@ serviceRoutes.post("/projects/:projectId/services", async (c) => {
     });
   }
 
+  if (body.type === "web" && body.autoDeploy) {
+    try {
+      await triggerServiceDeploy(service.id);
+    } catch (err) {
+      console.error("Auto-deploy failed:", err);
+    }
+  }
+
   const full = await prisma.service.findUnique({
     where: { id: service.id },
-    include: { domains: true, worker: true },
+    include: { domains: true, worker: true, githubRepoLink: true },
   });
 
   return c.json(full, 201);
@@ -156,7 +253,7 @@ serviceRoutes.delete("/services/:serviceId", async (c) => {
   const user = c.get("user");
   const service = await prisma.service.findUnique({
     where: { id: c.req.param("serviceId") },
-    include: { project: true, worker: true },
+    include: { project: true, worker: true, githubRepoLink: true },
   });
   if (!service) return c.json({ error: "Not found" }, 404);
 
@@ -165,6 +262,15 @@ serviceRoutes.delete("/services/:serviceId", async (c) => {
   });
   if (!membership || membership.role === "member") {
     return c.json({ error: "Forbidden" }, 403);
+  }
+
+  if (service.githubRepoLink?.webhookId) {
+    await removeWebhook(
+      service.githubRepoLink.installationId,
+      service.githubRepoLink.owner,
+      service.githubRepoLink.repo,
+      service.githubRepoLink.webhookId
+    );
   }
 
   await prisma.service.update({
@@ -182,6 +288,20 @@ serviceRoutes.delete("/services/:serviceId", async (c) => {
       },
     });
   }
+
+  await logAudit({
+    organizationId: service.project.organizationId,
+    userId: user.id,
+    action: "service.deleted",
+    resourceType: "service",
+    resourceId: service.id,
+    resourceName: service.name,
+  });
+
+  emitOrgEvent(service.project.organizationId, "service.updated", {
+    serviceId: service.id,
+    status: "deleting",
+  });
 
   return c.json({ ok: true, status: "deleting" });
 });
@@ -202,54 +322,46 @@ serviceRoutes.post("/services/:serviceId/deploy", async (c) => {
   });
   if (!membership) return c.json({ error: "Not found" }, 404);
 
-  const deployment = await prisma.deployment.create({
-    data: {
-      serviceId: service.id,
-      status: "queued",
-      gitRef: body.gitRef,
-      imageTag: body.imageTag,
-    },
+  const deployment = await triggerServiceDeploy(service.id, {
+    gitRef: body.gitRef,
+    imageTag: body.imageTag,
   });
 
-  const worker = await prisma.worker.findFirst({
-    where: { id: service.workerId ?? undefined },
+  await logAudit({
+    organizationId: service.project.organizationId,
+    userId: user.id,
+    action: "deployment.triggered",
+    resourceType: "deployment",
+    resourceId: deployment.id,
+    resourceName: service.name,
+    metadata: { gitRef: body.gitRef },
   });
 
-  if (worker) {
-    await prisma.agentTask.create({
-      data: {
-        workerId: worker.workerId,
-        serviceId: service.id,
-        type: "deploy",
-        payload: { deploymentId: deployment.id },
-      },
-    });
-  }
+  emitOrgEvent(service.project.organizationId, "deployment.updated", {
+    deploymentId: deployment.id,
+    serviceId: service.id,
+    status: deployment.status,
+  });
 
-  await enqueueDeploy(deployment.id, service.id);
   return c.json(deployment, 201);
 });
 
 serviceRoutes.get("/services/:serviceId/logs", async (c) => {
   const user = c.get("user");
-  const tail = parseInt(c.req.query("tail") ?? "100", 10);
-  const service = await prisma.service.findUnique({
-    where: { id: c.req.param("serviceId") },
-    include: { project: true, worker: true },
-  });
-  if (!service) return c.json({ error: "Not found" }, 404);
+  const tail = parseInt(c.req.query("tail") ?? "500", 10);
+  const result = await getServiceForUser(c.req.param("serviceId"), user.id);
+  if (!result) return c.json({ error: "Not found" }, 404);
 
-  const membership = await prisma.orgMember.findFirst({
-    where: { userId: user.id, organizationId: service.project.organizationId },
-  });
-  if (!membership) return c.json({ error: "Not found" }, 404);
+  const { service } = result;
+  const logs = service.runtimeLogs ?? "";
+  const lines = logs.split("\n");
+  const trimmed = lines.slice(-tail).join("\n");
 
   return c.json({
     serviceId: service.id,
     containerId: service.containerId,
-    workerId: service.worker?.workerId,
-    tail,
-    message: "Fetch logs via agent; poll /agent/services/:id/logs from worker",
+    logs: trimmed,
+    lineCount: lines.length,
   });
 });
 
@@ -304,6 +416,28 @@ serviceRoutes.post("/services/:serviceId/env", async (c) => {
   return c.json({ id: envVar.id, key: envVar.key, isSecret: envVar.isSecret }, 201);
 });
 
+serviceRoutes.delete("/services/:serviceId/env/:key", async (c) => {
+  const user = c.get("user");
+  const result = await getServiceForUser(c.req.param("serviceId"), user.id);
+  if (!result) return c.json({ error: "Not found" }, 404);
+
+  const key = decodeURIComponent(c.req.param("key"));
+  await prisma.envVar.deleteMany({
+    where: { serviceId: result.service.id, key },
+  });
+
+  await logAudit({
+    organizationId: result.service.project.organizationId,
+    userId: user.id,
+    action: "env.deleted",
+    resourceType: "env_var",
+    resourceId: result.service.id,
+    resourceName: key,
+  });
+
+  return c.json({ ok: true });
+});
+
 serviceRoutes.post("/services/:serviceId/domains", async (c) => {
   const user = c.get("user");
   const body = createDomainSchema.parse(await c.req.json());
@@ -332,6 +466,91 @@ serviceRoutes.post("/services/:serviceId/domains", async (c) => {
   });
 
   return c.json(domain, 201);
+});
+
+serviceRoutes.delete("/services/:serviceId/domains/:domainId", async (c) => {
+  const user = c.get("user");
+  const result = await getServiceForUser(c.req.param("serviceId"), user.id);
+  if (!result) return c.json({ error: "Not found" }, 404);
+
+  const domain = await prisma.domain.findFirst({
+    where: { id: c.req.param("domainId"), serviceId: result.service.id },
+  });
+  if (!domain) return c.json({ error: "Not found" }, 404);
+
+  await prisma.domain.delete({ where: { id: domain.id } });
+
+  await logAudit({
+    organizationId: result.service.project.organizationId,
+    userId: user.id,
+    action: "domain.deleted",
+    resourceType: "domain",
+    resourceId: domain.id,
+    resourceName: domain.hostname,
+  });
+
+  return c.json({ ok: true });
+});
+
+serviceRoutes.patch("/services/:serviceId", async (c) => {
+  const user = c.get("user");
+  const body = updateServiceSchema.parse(await c.req.json());
+  const result = await getServiceForUser(c.req.param("serviceId"), user.id);
+  if (!result) return c.json({ error: "Not found" }, 404);
+  if (result.membership.role === "member" && body.config) {
+    return c.json({ error: "Forbidden" }, 403);
+  }
+
+  const updated = await prisma.service.update({
+    where: { id: result.service.id },
+    data: {
+      ...(body.name ? { name: body.name } : {}),
+      ...(body.config
+        ? { config: { ...(result.service.config as object), ...body.config } as Prisma.InputJsonValue }
+        : {}),
+    },
+  });
+
+  await logAudit({
+    organizationId: result.service.project.organizationId,
+    userId: user.id,
+    action: "service.updated",
+    resourceType: "service",
+    resourceId: updated.id,
+    resourceName: updated.name,
+  });
+
+  return c.json(updated);
+});
+
+serviceRoutes.post("/services/:serviceId/restart", async (c) => {
+  const user = c.get("user");
+  const result = await getServiceForUser(c.req.param("serviceId"), user.id);
+  if (!result) return c.json({ error: "Not found" }, 404);
+  if (!result.service.workerId) return c.json({ error: "No worker assigned" }, 400);
+
+  const worker = await prisma.worker.findUnique({ where: { id: result.service.workerId } });
+  if (!worker) return c.json({ error: "Worker not found" }, 400);
+
+  await prisma.agentTask.create({
+    data: {
+      workerId: worker.workerId,
+      serviceId: result.service.id,
+      type: "start",
+      payload: { restart: true },
+    },
+  });
+
+  await logAudit({
+    organizationId: result.service.project.organizationId,
+    userId: user.id,
+    action: "service.restarted",
+    resourceType: "service",
+    resourceId: result.service.id,
+    resourceName: result.service.name,
+  });
+
+  return c.json({ ok: true });
 });
 
 serviceRoutes.get("/services/:serviceId/connection", async (c) => {

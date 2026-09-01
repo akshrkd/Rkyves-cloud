@@ -215,7 +215,7 @@ export async function deployWeb(service: ServiceDetail) {
   if (!deployment) throw new Error("No pending deployment");
 
   const config = service.config;
-  const gitRepo = config.gitRepo as string | undefined;
+  const gitRepo = (service.cloneUrl ?? config.gitRepo) as string | undefined;
   const gitBranch = deployment.gitRef ?? (config.gitBranch as string) ?? "main";
   const dockerfilePath = (config.dockerfilePath as string) ?? "Dockerfile";
 

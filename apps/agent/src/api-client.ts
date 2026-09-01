@@ -106,4 +106,5 @@ export interface ServiceDetail {
     gitRef: string | null;
     imageTag: string | null;
   } | null;
+  cloneUrl?: string;
 }

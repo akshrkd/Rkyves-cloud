@@ -11,7 +11,9 @@ import { agentRoutes } from "./routes/agent.js";
 import { cronRoutes } from "./routes/cron.js";
 import { webhookRoutes } from "./routes/webhooks.js";
 import { workerRoutes } from "./routes/workers.js";
-import { startCronDispatcher, scheduleDailyBackups } from "./services/cron-dispatcher.js";
+import { integrationRoutes } from "./routes/integrations/index.js";
+import { deploymentRoutes } from "./routes/deployments.js";
+import { eventRoutes } from "./routes/events.js";
 
 const app = new Hono();
 
@@ -35,6 +37,9 @@ app.route("/agent", agentRoutes);
 app.route("/", cronRoutes);
 app.route("/webhooks", webhookRoutes);
 app.route("/workers", workerRoutes);
+app.route("/integrations", integrationRoutes);
+app.route("/", deploymentRoutes);
+app.route("/events", eventRoutes);
 
 app.onError((err, c) => {
   console.error(err);
@@ -43,6 +48,8 @@ app.onError((err, c) => {
   }
   return c.json({ error: err.message ?? "Internal server error" }, 500);
 });
+
+import { startCronDispatcher, scheduleDailyBackups } from "./services/cron-dispatcher.js";
 
 try {
   startCronDispatcher();

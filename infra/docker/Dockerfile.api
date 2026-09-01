@@ -25,7 +25,8 @@ RUN pnpm --filter @rkyves/shared build \
  && pnpm --filter @rkyves/api build
 
 FROM node:20-alpine AS runner
-RUN apk add --no-cache curl openssl
+RUN apk add --no-cache curl openssl \
+ && npm install -g prisma@6.3.0
 WORKDIR /app
 ENV NODE_ENV=production
 

@@ -58,6 +58,14 @@ export const createServiceSchema = z.object({
   name: z.string().min(1).max(100),
   type: ServiceType,
   config: z.record(z.unknown()).optional(),
+  autoDeploy: z.boolean().default(false),
+  githubRepo: z
+    .object({
+      owner: z.string().min(1),
+      repo: z.string().min(1),
+      branch: z.string().optional(),
+    })
+    .optional(),
 });
 
 export const webServiceConfigSchema = z.object({
@@ -68,6 +76,9 @@ export const webServiceConfigSchema = z.object({
   startCommand: z.string().optional(),
   port: z.number().int().min(1).max(65535).default(3000),
   healthCheckPath: z.string().default("/health"),
+  gitOwner: z.string().optional(),
+  gitRepoName: z.string().optional(),
+  gitInstallationId: z.number().int().optional(),
 });
 
 export const postgresServiceConfigSchema = z.object({
@@ -148,6 +159,34 @@ export const agentStatusReportSchema = z.object({
 export const triggerDeploySchema = z.object({
   gitRef: z.string().optional(),
   imageTag: z.string().optional(),
+});
+
+export const inviteMemberSchema = z.object({
+  email: z.string().email(),
+  role: OrgRole.default("member"),
+});
+
+export const updateMemberRoleSchema = z.object({
+  role: OrgRole,
+});
+
+export const updateServiceSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  config: z.record(z.unknown()).optional(),
+});
+
+export const agentMetricsSchema = z.object({
+  workerId: z.string(),
+  serviceId: z.string().optional(),
+  cpuPercent: z.number().optional(),
+  memoryMb: z.number().int().optional(),
+  diskGb: z.number().int().optional(),
+});
+
+export const agentRuntimeLogsSchema = z.object({
+  workerId: z.string(),
+  serviceId: z.string(),
+  logs: z.string(),
 });
 
 export type LoginInput = z.infer<typeof loginSchema>;
