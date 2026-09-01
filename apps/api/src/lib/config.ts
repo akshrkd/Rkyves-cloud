@@ -1,3 +1,5 @@
+import { readFileSync } from "fs";
+
 function parsePrivateKey(raw: string | undefined): string | undefined {
   if (!raw) return undefined;
   if (raw.includes("BEGIN")) return raw.replace(/\\n/g, "\n");
@@ -6,6 +8,18 @@ function parsePrivateKey(raw: string | undefined): string | undefined {
   } catch {
     return raw;
   }
+}
+
+function loadPrivateKey(): string | undefined {
+  const keyFile = process.env.GITHUB_APP_PRIVATE_KEY_FILE;
+  if (keyFile) {
+    try {
+      return readFileSync(keyFile, "utf8");
+    } catch {
+      // Fall back to env var when the mounted file is missing.
+    }
+  }
+  return parsePrivateKey(process.env.GITHUB_APP_PRIVATE_KEY);
 }
 
 export const config = {
@@ -19,7 +33,7 @@ export const config = {
   platformDomain: process.env.PLATFORM_DOMAIN ?? "rkyves.com",
   github: {
     appId: process.env.GITHUB_APP_ID,
-    privateKey: parsePrivateKey(process.env.GITHUB_APP_PRIVATE_KEY),
+    privateKey: loadPrivateKey(),
     clientId: process.env.GITHUB_APP_CLIENT_ID,
     clientSecret: process.env.GITHUB_APP_CLIENT_SECRET,
     webhookSecret: process.env.GITHUB_WEBHOOK_SECRET ?? "dev-github-webhook-secret",

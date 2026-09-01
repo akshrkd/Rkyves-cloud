@@ -94,39 +94,66 @@ if [[ -z "$WEBHOOK_SECRET" ]]; then
   echo "Generated webhook secret: $WEBHOOK_SECRET"
 fi
 
-# Base64-encode PEM so it fits on one .env line
-PRIVATE_KEY_B64=$(base64 -w 0 "$PRIVATE_KEY_FILE" 2>/dev/null || base64 "$PRIVATE_KEY_FILE" | tr -d '\n')
-
 touch "$ENV_FILE"
 upsert_env() {
   local key="$1"
   local val="$2"
+  touch "$ENV_FILE"
   if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
-    sed -i "s|^${key}=.*|${key}=${val}|" "$ENV_FILE"
-  else
-    echo "${key}=${val}" >> "$ENV_FILE"
+    grep -v "^${key}=" "$ENV_FILE" > "${ENV_FILE}.tmp"
+    mv "${ENV_FILE}.tmp" "$ENV_FILE"
   fi
+  printf '%s=%s\n' "$key" "$val" >> "$ENV_FILE"
 }
 
 upsert_env "GITHUB_APP_ID" "$APP_ID"
 upsert_env "GITHUB_APP_SLUG" "$SLUG"
-upsert_env "GITHUB_APP_PRIVATE_KEY" "$PRIVATE_KEY_B64"
 upsert_env "GITHUB_APP_CLIENT_ID" "$CLIENT_ID"
 upsert_env "GITHUB_APP_CLIENT_SECRET" "$CLIENT_SECRET"
 upsert_env "GITHUB_WEBHOOK_SECRET" "$WEBHOOK_SECRET"
 upsert_env "API_PUBLIC_URL" "https://api.rkyves.com"
 upsert_env "CORS_ORIGIN" "https://cloud.rkyves.com"
 
-echo "Updated $ENV_FILE with GitHub settings"
-echo "Restarting API..."
-docker compose -f "$ROOT/infra/docker-compose.yml" up -d api
+SECRETS_DIR="$ROOT/secrets"
+mkdir -p "$SECRETS_DIR"
+cp "$PRIVATE_KEY_FILE" "$SECRETS_DIR/github.pem"
+chmod 600 "$SECRETS_DIR/github.pem"
 
-sleep 3
+upsert_env "GITHUB_APP_PRIVATE_KEY_FILE" "/run/secrets/github.pem"
+
+# Drop stale inline key from .env — the mounted PEM file is the source of truth.
+grep -v "^GITHUB_APP_PRIVATE_KEY=" "$ENV_FILE" > "${ENV_FILE}.tmp" 2>/dev/null || true
+mv "${ENV_FILE}.tmp" "$ENV_FILE"
+
+COMPOSE_FILES=(-f "$ROOT/infra/docker-compose.yml")
+OVERRIDE="$ROOT/infra/docker-compose.github.override.yml"
+cat > "$OVERRIDE" <<'YAML'
+services:
+  api:
+    environment:
+      GITHUB_APP_PRIVATE_KEY_FILE: /run/secrets/github.pem
+    volumes:
+      - ../secrets/github.pem:/run/secrets/github.pem:ro
+YAML
+COMPOSE_FILES+=(-f "$OVERRIDE")
+
+echo "Updated $ENV_FILE with GitHub settings"
+echo "Restarting API (recreate to load new env)..."
+docker compose "${COMPOSE_FILES[@]}" up -d api --force-recreate
+
+sleep 5
 echo ""
 echo "Checking configuration..."
-curl -sf "https://api.rkyves.com/integrations/github/configured" || curl -sf "http://localhost:3001/integrations/github/configured" || true
+CONFIGURED_JSON=$(curl -s "https://api.rkyves.com/integrations/github/configured" 2>/dev/null || curl -s "http://localhost:3001/integrations/github/configured" 2>/dev/null || true)
+if [[ -n "$CONFIGURED_JSON" ]]; then
+  echo "$CONFIGURED_JSON"
+else
+  echo "Warning: /integrations/github/configured returned nothing — rebuild API: cd infra && docker compose build api && docker compose up -d api --force-recreate"
+fi
 echo ""
 docker exec rkyves-api printenv GITHUB_APP_ID GITHUB_APP_SLUG 2>/dev/null || true
+KEY_OK=$(docker exec rkyves-api sh -c 'test -n "$GITHUB_APP_PRIVATE_KEY" -o -f "$GITHUB_APP_PRIVATE_KEY_FILE" && echo yes || echo no' 2>/dev/null || echo no)
+echo "Private key loaded: $KEY_OK"
 
 echo ""
 echo "Done. Open https://cloud.rkyves.com/dashboard/settings/integrations and click Connect GitHub."
