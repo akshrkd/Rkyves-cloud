@@ -64,14 +64,13 @@ orgRoutes.get("/:orgId/overview", async (c) => {
   const membership = await getOrgMembership(user.id, orgId);
   if (!membership) return c.json({ error: "Not found" }, 404);
 
-  const [projects, workers, githubInstallation, services, recentDeployments] = await Promise.all([
+  const [projects, workers, services, recentDeployments] = await Promise.all([
     prisma.project.findMany({
       where: { organizationId: orgId },
       include: { _count: { select: { services: true } } },
       orderBy: { updatedAt: "desc" },
     }),
     prisma.worker.findMany({ include: { _count: { select: { services: true } } } }),
-    prisma.gitHubInstallation.findUnique({ where: { organizationId: orgId } }),
     prisma.service.findMany({
       where: { project: { organizationId: orgId } },
       select: { id: true, name: true, status: true, type: true, projectId: true },
@@ -91,6 +90,13 @@ orgRoutes.get("/:orgId/overview", async (c) => {
       },
     }),
   ]);
+
+  let githubInstallation = null;
+  try {
+    githubInstallation = await prisma.gitHubInstallation.findUnique({ where: { organizationId: orgId } });
+  } catch {
+    githubInstallation = null;
+  }
 
   const runningServices = services.filter((s) => s.status === "running").length;
   const failedServices = services.filter((s) => s.status === "failed").length;
