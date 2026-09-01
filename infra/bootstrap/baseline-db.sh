@@ -20,11 +20,17 @@ docker run --rm --network rkyves-platform \
   -v "$ROOT/packages/db/prisma:/prisma" \
   -e DATABASE_URL="$DATABASE_URL" \
   node:20-alpine sh -c "
-    npm install -g prisma@6.3.0 >/dev/null 2>&1
+    npm install -g prisma@6.19.3 >/dev/null 2>&1
     prisma migrate resolve --applied 20260831120000_init --schema=/prisma/schema.prisma
     prisma migrate resolve --applied 20260901130000_github_integration --schema=/prisma/schema.prisma
     prisma migrate resolve --applied 20260901180000_console_features --schema=/prisma/schema.prisma
+    echo '--- migrate deploy (should report no pending migrations) ---'
+    prisma migrate deploy --schema=/prisma/schema.prisma
   "
+
+echo "Migration history:"
+docker exec rkyves-control-db psql -U rkyves -d rkyves_control \
+  -c 'SELECT migration_name, finished_at FROM "_prisma_migrations" ORDER BY finished_at;'
 
 echo "Restarting API..."
 docker compose -f "$ROOT/infra/docker-compose.yml" restart api
