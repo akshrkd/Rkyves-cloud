@@ -12,6 +12,10 @@ import { cronRoutes } from "./routes/cron.js";
 import { webhookRoutes } from "./routes/webhooks.js";
 import { workerRoutes } from "./routes/workers.js";
 import { integrationRoutes } from "./routes/integrations/index.js";
+import {
+  handleGitHubCallback,
+  handleGitHubConfigured,
+} from "./routes/integrations/github-public.js";
 import { deploymentRoutes } from "./routes/deployments.js";
 import { eventRoutes } from "./routes/events.js";
 
@@ -28,6 +32,10 @@ app.use(
 );
 
 app.get("/health", (c) => c.json({ status: "ok", service: "rkyves-api" }));
+
+// Public GitHub routes — registered on the root app so auth middleware never intercepts them.
+app.get("/integrations/github/callback", handleGitHubCallback);
+app.get("/integrations/github/configured", handleGitHubConfigured);
 
 app.route("/auth", authRoutes);
 app.route("/orgs", orgRoutes);
