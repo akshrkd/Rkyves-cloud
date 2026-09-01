@@ -86,6 +86,7 @@ export default function NewServiceContent() {
   const [loading, setLoading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [loadingRepos, setLoadingRepos] = useState(false);
+  const [repoError, setRepoError] = useState("");
   const [error, setError] = useState("");
 
   const breadcrumbs = useMemo(
@@ -122,7 +123,14 @@ export default function NewServiceContent() {
       api<{ repos: GitHubRepo[] }>(
         `/integrations/github/repos?organizationId=${organizationId}&search=${encodeURIComponent(repoSearch)}`
       )
-        .then((data) => setRepos(data.repos))
+        .then((data) => {
+          setRepos(data.repos);
+          setRepoError("");
+        })
+        .catch((err) => {
+          setRepos([]);
+          setRepoError(err instanceof Error ? err.message : "Failed to load repositories");
+        })
         .finally(() => setLoadingRepos(false));
     }, 300);
     return () => clearTimeout(timer);
@@ -413,8 +421,13 @@ export default function NewServiceContent() {
                           )}
                         </button>
                       ))}
-                      {repos.length === 0 && (
+                      {repos.length === 0 && !repoError && (
                         <p className="text-sm text-muted-foreground">No repositories found.</p>
+                      )}
+                      {repoError && (
+                        <Alert variant="destructive">
+                          <AlertDescription>{repoError}</AlertDescription>
+                        </Alert>
                       )}
                     </div>
                   )}

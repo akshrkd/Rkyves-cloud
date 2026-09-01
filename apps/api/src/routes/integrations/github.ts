@@ -111,8 +111,14 @@ githubRoutes.get("/repos", async (c) => {
     return c.json({ error: "GitHub not connected for this organization" }, 400);
   }
 
-  const repos = await listRepos(installation.installationId, search);
-  return c.json({ repos, installationId: installation.installationId });
+  try {
+    const repos = await listRepos(installation.installationId, search);
+    return c.json({ repos, installationId: installation.installationId });
+  } catch (err) {
+    console.error("GitHub listRepos failed:", err);
+    const message = err instanceof Error ? err.message : "Failed to list GitHub repositories";
+    return c.json({ error: message }, 502);
+  }
 });
 
 githubRoutes.get("/repos/:owner/:repo/analyze", async (c) => {
