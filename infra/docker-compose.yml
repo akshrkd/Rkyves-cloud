@@ -87,10 +87,10 @@ services:
     build:
       context: ..
       dockerfile: infra/docker/Dockerfile.dashboard
+      args:
+        NEXT_PUBLIC_API_URL: ${API_PUBLIC_URL:-https://api.rkyves.com}
     container_name: rkyves-dashboard
     restart: unless-stopped
-    environment:
-      NEXT_PUBLIC_API_URL: http://api:3001
     depends_on:
       - api
     networks:

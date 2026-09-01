@@ -44,9 +44,13 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   });
 
   if (res.status === 401) {
-    clearToken();
-    if (typeof window !== "undefined") window.location.href = "/login";
-    throw new ApiError("Unauthorized", 401);
+    const err = await res.json().catch(() => ({ error: "Unauthorized" }));
+    const isLogin = path === "/auth/login" || path.endsWith("/auth/login");
+    if (!isLogin) {
+      clearToken();
+      if (typeof window !== "undefined") window.location.href = "/login";
+    }
+    throw new ApiError(err.error ?? "Unauthorized", 401);
   }
 
   if (!res.ok) {
