@@ -1,16 +1,11 @@
 import { App } from "@octokit/app";
-import { Octokit } from "@octokit/rest";
 import { randomBytes } from "crypto";
 import { config } from "../lib/config.js";
 import { slugify } from "@rkyves/shared";
 
-type RestClient = Octokit["rest"];
-
-function getRestClient(octokit: Octokit): RestClient {
-  return octokit.rest;
-}
-
 let githubApp: App | null = null;
+
+type InstallationOctokit = Awaited<ReturnType<App["getInstallationOctokit"]>>;
 
 function getApp(): App {
   if (!config.github.appId || !config.github.privateKey) {
@@ -35,9 +30,9 @@ export function isGitHubConfigured(): boolean {
   return Boolean(config.github.appId && config.github.privateKey);
 }
 
-export async function getInstallationOctokit(installationId: number): Promise<Octokit> {
+export async function getInstallationOctokit(installationId: number): Promise<InstallationOctokit> {
   const app = getApp();
-  return app.getInstallationOctokit(installationId) as unknown as Octokit;
+  return app.getInstallationOctokit(installationId);
 }
 
 export async function getInstallationToken(installationId: number): Promise<string> {
@@ -78,18 +73,17 @@ export async function listRepos(
   search?: string
 ): Promise<GitHubRepoSummary[]> {
   const octokit = await getInstallationOctokit(installationId);
-  const rest = getRestClient(octokit);
   const repos: GitHubRepoSummary[] = [];
   let page = 1;
 
   while (page <= 5) {
-    const { data } = await rest.apps.listReposAccessibleToInstallation({
+    const { data } = await octokit.request("GET /installation/repositories", {
       per_page: 100,
       page,
     });
     for (const repo of data.repositories) {
       repos.push({
-        id: repo.id,
+        id: Number(repo.id),
         name: repo.name,
         fullName: repo.full_name,
         owner: repo.owner.login,
@@ -117,14 +111,19 @@ export async function listRepos(
 }
 
 async function fetchFileContent(
-  octokit: Octokit,
+  octokit: InstallationOctokit,
   owner: string,
   repo: string,
   path: string,
   ref: string
 ): Promise<string | null> {
   try {
-    const { data } = await getRestClient(octokit).repos.getContent({ owner, repo, path, ref });
+    const { data } = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
+      owner,
+      repo,
+      path,
+      ref,
+    });
     if (Array.isArray(data) || data.type !== "file" || !("content" in data)) return null;
     return Buffer.from(data.content, "base64").toString("utf8");
   } catch {
@@ -185,8 +184,7 @@ export async function analyzeRepo(
   branch?: string
 ): Promise<RepoAnalysis> {
   const octokit = await getInstallationOctokit(installationId);
-  const rest = getRestClient(octokit);
-  const { data: repoData } = await rest.repos.get({ owner, repo });
+  const { data: repoData } = await octokit.request("GET /repos/{owner}/{repo}", { owner, repo });
   const gitBranch = branch ?? repoData.default_branch ?? "main";
 
   const sources: Record<string, string> = { gitBranch: "repository metadata" };
@@ -271,7 +269,11 @@ export async function branchExists(
 ): Promise<boolean> {
   const octokit = await getInstallationOctokit(installationId);
   try {
-    await getRestClient(octokit).repos.getBranch({ owner, repo, branch });
+    await octokit.request("GET /repos/{owner}/{repo}/branches/{branch}", {
+      owner,
+      repo,
+      branch,
+    });
     return true;
   } catch {
     return false;
@@ -292,7 +294,7 @@ export async function registerWebhook(
   const octokit = await getInstallationOctokit(installationId);
   const webhookUrl = `${config.apiPublicUrl}/webhooks/github/${serviceId}`;
 
-  const { data } = await getRestClient(octokit).repos.createWebhook({
+  const { data } = await octokit.request("POST /repos/{owner}/{repo}/hooks", {
     owner,
     repo,
     config: {
@@ -316,7 +318,11 @@ export async function removeWebhook(
 ): Promise<void> {
   const octokit = await getInstallationOctokit(installationId);
   try {
-    await getRestClient(octokit).repos.deleteWebhook({ owner, repo, hook_id: webhookId });
+    await octokit.request("DELETE /repos/{owner}/{repo}/hooks/{hook_id}", {
+      owner,
+      repo,
+      hook_id: webhookId,
+    });
   } catch {
     // webhook may already be removed
   }
