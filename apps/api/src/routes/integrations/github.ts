@@ -12,14 +12,14 @@ import {
   removeWebhook,
 } from "../../services/github.js";
 
-export const githubIntegrationRoutes = new Hono();
-export const githubPublicRoutes = new Hono();
+export const githubRoutes = new Hono();
 
-githubPublicRoutes.get("/configured", (c) => {
+// Public routes must be registered before auth middleware.
+githubRoutes.get("/configured", (c) => {
   return c.json({ configured: isGitHubConfigured() });
 });
 
-githubPublicRoutes.get("/callback", async (c) => {
+githubRoutes.get("/callback", async (c) => {
   const installationIdRaw = c.req.query("installation_id");
   const state = c.req.query("state");
   const setupAction = c.req.query("setup_action");
@@ -65,7 +65,7 @@ githubPublicRoutes.get("/callback", async (c) => {
   );
 });
 
-githubIntegrationRoutes.use("*", requireAuth, requireUser);
+githubRoutes.use("*", requireAuth, requireUser);
 
 async function assertOrgAccess(userId: string, orgId: string, minRole?: "admin") {
   const membership = await prisma.orgMember.findFirst({
@@ -76,7 +76,7 @@ async function assertOrgAccess(userId: string, orgId: string, minRole?: "admin")
   return membership;
 }
 
-githubIntegrationRoutes.get("/status", async (c) => {
+githubRoutes.get("/status", async (c) => {
   const user = c.get("user");
   const organizationId = c.req.query("organizationId");
   if (!organizationId) return c.json({ error: "organizationId required" }, 400);
@@ -98,7 +98,7 @@ githubIntegrationRoutes.get("/status", async (c) => {
   });
 });
 
-githubIntegrationRoutes.get("/install-url", async (c) => {
+githubRoutes.get("/install-url", async (c) => {
   const user = c.get("user");
   const organizationId = c.req.query("organizationId");
   if (!organizationId) return c.json({ error: "organizationId required" }, 400);
@@ -117,7 +117,7 @@ githubIntegrationRoutes.get("/install-url", async (c) => {
   });
 });
 
-githubIntegrationRoutes.delete("/", async (c) => {
+githubRoutes.delete("/", async (c) => {
   const user = c.get("user");
   const organizationId = c.req.query("organizationId");
   if (!organizationId) return c.json({ error: "organizationId required" }, 400);
@@ -146,7 +146,7 @@ githubIntegrationRoutes.delete("/", async (c) => {
   return c.json({ ok: true, disconnected: true });
 });
 
-githubIntegrationRoutes.get("/repos", async (c) => {
+githubRoutes.get("/repos", async (c) => {
   const user = c.get("user");
   const organizationId = c.req.query("organizationId");
   const search = c.req.query("search") ?? undefined;
@@ -167,7 +167,7 @@ githubIntegrationRoutes.get("/repos", async (c) => {
   return c.json({ repos, installationId: installation.installationId });
 });
 
-githubIntegrationRoutes.get("/repos/:owner/:repo/analyze", async (c) => {
+githubRoutes.get("/repos/:owner/:repo/analyze", async (c) => {
   const user = c.get("user");
   const organizationId = c.req.query("organizationId");
   const branch = c.req.query("branch") ?? undefined;
@@ -191,7 +191,7 @@ githubIntegrationRoutes.get("/repos/:owner/:repo/analyze", async (c) => {
   return c.json({ ...analysis, installationId: installation.installationId });
 });
 
-githubIntegrationRoutes.get("/repos/:owner/:repo/branches", async (c) => {
+githubRoutes.get("/repos/:owner/:repo/branches", async (c) => {
   const user = c.get("user");
   const organizationId = c.req.query("organizationId");
   const owner = c.req.param("owner");
